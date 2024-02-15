@@ -1,0 +1,5 @@
+.bazelrc
+.bazelignore
+.gitignore
+MODULE.bazel
+node_modules

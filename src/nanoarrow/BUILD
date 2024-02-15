@@ -52,15 +52,18 @@ cc_library(
         "testing",
         "@googletest//:gtest_main",
         "@nlohmann_json//:json",
+        "@com_github_malkia_arrow//cpp/src/arrow",
+        "@com_github_malkia_arrow//cpp/src/arrow/testing",
+        "@com_github_malkia_arrow//cpp/src/arrow/c:bridge",
     ],
 ) for name in [
     "array_stream_test",
-    #"array_test",
+    "array_test",
     "buffer_test",
     "nanoarrow_hpp_test",
     "nanoarrow_testing_test",
-    #"schema_test",
-    #"utils_test",
+    "schema_test",
+    "utils_test",
 ]]
 
 cc_test(

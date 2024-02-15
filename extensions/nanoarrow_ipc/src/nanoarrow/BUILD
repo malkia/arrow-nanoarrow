@@ -27,10 +27,13 @@ cc_library(
         "ipc",
         "@googletest//:gtest_main",
         "@zlib",
+        "@nlohmann_json//:json",
+        "@com_github_malkia_arrow//cpp/src/arrow",
+        "@com_github_malkia_arrow//cpp/src/arrow/c:bridge",
     ],
 ) for name in [
-    #"nanoarrow_ipc_decoder_test",
-    #"nanoarrow_ipc_files_test",
+    "nanoarrow_ipc_decoder_test",
+    "nanoarrow_ipc_files_test",
     "nanoarrow_ipc_hpp_test",
     "nanoarrow_ipc_reader_test",
 ]]

@@ -52,9 +52,9 @@ cc_library(
         "testing",
         "@googletest//:gtest_main",
         "@nlohmann_json//:json",
-        "@com_github_malkia_arrow//cpp/src/arrow",
-        "@com_github_malkia_arrow//cpp/src/arrow/testing",
-        "@com_github_malkia_arrow//cpp/src/arrow/c:bridge",
+        "@arrow//cpp/src/arrow",
+        "@arrow//cpp/src/arrow/testing",
+        "@arrow//cpp/src/arrow/c:bridge",
     ],
 ) for name in [
     "array_stream_test",

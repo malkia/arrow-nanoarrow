@@ -28,8 +28,8 @@ cc_library(
         "@googletest//:gtest_main",
         "@zlib",
         "@nlohmann_json//:json",
-        "@com_github_malkia_arrow//cpp/src/arrow",
-        "@com_github_malkia_arrow//cpp/src/arrow/c:bridge",
+        "@arrow//cpp/src/arrow",
+        "@arrow//cpp/src/arrow/c:bridge",
     ],
 ) for name in [
     "nanoarrow_ipc_decoder_test",

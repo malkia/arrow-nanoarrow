@@ -17,6 +17,7 @@
 
 _coverage/
 build/
+scratch/
 out/
 arrow-hpp
 .DS_Store
@@ -24,3 +25,8 @@ CMakeUserPresets.json
 .vscode
 .Rproj.user
 .cache
+*.swp
+__pycache__
+
+# meson subprojects
+subprojects

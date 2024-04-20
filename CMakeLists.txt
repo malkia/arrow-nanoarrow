@@ -20,6 +20,7 @@ cmake_minimum_required(VERSION 3.14)
 
 if(NOT DEFINED CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
+  set(CMAKE_C_STANDARD_REQUIRED ON)
 endif()
 
 set(NANOARROW_VERSION "0.5.0-SNAPSHOT")
@@ -48,7 +49,6 @@ else()
 endif()
 
 option(NANOARROW_CODE_COVERAGE "Enable coverage reporting" OFF)
-add_library(coverage_config INTERFACE)
 
 # Avoids a warning about timestamps on downloaded files (prefer new policy
 # if available))
@@ -110,6 +110,8 @@ if(NANOARROW_BUNDLE)
   if(NANOARROW_BUILD_TESTS)
     include_directories(${CMAKE_BINARY_DIR}/amalgamation)
     add_library(nanoarrow ${NANOARROW_C_TEMP})
+    add_library(nanoarrow::nanoarrow ALIAS nanoarrow)
+
     target_compile_definitions(nanoarrow PUBLIC "$<$<CONFIG:Debug>:NANOARROW_DEBUG>")
   endif()
 
@@ -119,6 +121,7 @@ if(NANOARROW_BUNDLE)
 else()
   add_library(nanoarrow src/nanoarrow/array.c src/nanoarrow/schema.c
                         src/nanoarrow/array_stream.c src/nanoarrow/utils.c)
+  add_library(nanoarrow::nanoarrow ALIAS nanoarrow)
 
   target_include_directories(nanoarrow
                              PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -153,13 +156,50 @@ else()
     endif()
   endif()
 
-  install(TARGETS nanoarrow DESTINATION lib)
+  install(TARGETS nanoarrow
+          DESTINATION lib
+          EXPORT nanoarrow-exports)
   install(DIRECTORY src/
           DESTINATION include
           FILES_MATCHING
-          PATTERN "*.h")
+          PATTERN "*.h*")
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/nanoarrow_config.h
           DESTINATION include/nanoarrow)
+
+  # Generate package files for the build and install trees.
+  include(CMakePackageConfigHelpers)
+  include(GNUInstallDirs)
+
+  foreach(tree_type BUILD INSTALL)
+    if(tree_type STREQUAL "BUILD")
+      set(install_location ".")
+    else()
+      set(install_location "${CMAKE_INSTALL_LIBDIR}/cmake/nanoarrow")
+    endif()
+
+    set(build_location "${PROJECT_BINARY_DIR}/${install_location}")
+    write_basic_package_version_file(
+      "${build_location}/nanoarrow-config-version.cmake"
+      VERSION ${nanoarrow_VERSION}
+      # After 1.0.0, we can use `SameMajorVersion` here.
+      COMPATIBILITY ExactVersion)
+    configure_package_config_file("${CMAKE_CURRENT_LIST_DIR}/cmake/config.cmake.in"
+                                  "${build_location}/nanoarrow-config.cmake"
+                                  INSTALL_DESTINATION "${install_location}")
+
+    if(tree_type STREQUAL "BUILD")
+      export(EXPORT nanoarrow-exports
+             FILE "${build_location}/nanoarrow-targets.cmake"
+             NAMESPACE nanoarrow::)
+
+    else()
+      install(DIRECTORY "${build_location}/" DESTINATION "${install_location}")
+      install(EXPORT nanoarrow-exports
+              DESTINATION "${install_location}"
+              FILE "nanoarrow-targets.cmake"
+              NAMESPACE nanoarrow::)
+    endif()
+  endforeach()
 endif()
 
 # Always build integration test if building tests
@@ -203,6 +243,7 @@ if(NANOARROW_BUILD_TESTS)
 
   add_subdirectory("thirdparty/googletest")
 
+  # Be sure to keep these tests in sync with src/nanoarrow/meson.build
   add_executable(utils_test src/nanoarrow/utils_test.cc)
   add_executable(buffer_test src/nanoarrow/buffer_test.cc)
   add_executable(array_test src/nanoarrow/array_test.cc)
@@ -214,34 +255,18 @@ if(NANOARROW_BUILD_TESTS)
                  src/nanoarrow/integration/c_data_integration_test.cc)
 
   if(NANOARROW_CODE_COVERAGE)
-    target_compile_options(coverage_config INTERFACE -O0 -g --coverage)
-    target_link_options(coverage_config INTERFACE --coverage)
-    target_link_libraries(nanoarrow coverage_config)
+    target_compile_options(nanoarrow PUBLIC -O0 -g --coverage)
+    target_link_options(nanoarrow PUBLIC --coverage)
   endif()
 
-  target_link_libraries(utils_test
-                        nanoarrow
-                        gtest_main
-                        ${NANOARROW_ARROW_TARGET}
-                        coverage_config)
-  target_link_libraries(buffer_test nanoarrow gtest_main coverage_config)
-  target_link_libraries(array_test
-                        nanoarrow
-                        gtest_main
-                        ${NANOARROW_ARROW_TARGET}
-                        coverage_config)
-  target_link_libraries(schema_test
-                        nanoarrow
-                        gtest_main
-                        ${NANOARROW_ARROW_TARGET}
-                        coverage_config)
-  target_link_libraries(array_stream_test nanoarrow gtest_main coverage_config)
-  target_link_libraries(nanoarrow_hpp_test nanoarrow gtest_main coverage_config)
-  target_link_libraries(nanoarrow_testing_test
-                        nanoarrow
-                        gtest_main
-                        nlohmann_json::nlohmann_json
-                        coverage_config)
+  target_link_libraries(utils_test nanoarrow gtest_main ${NANOARROW_ARROW_TARGET})
+  target_link_libraries(buffer_test nanoarrow gtest_main)
+  target_link_libraries(array_test nanoarrow gtest_main ${NANOARROW_ARROW_TARGET})
+  target_link_libraries(schema_test nanoarrow gtest_main ${NANOARROW_ARROW_TARGET})
+  target_link_libraries(array_stream_test nanoarrow gtest_main)
+  target_link_libraries(nanoarrow_hpp_test nanoarrow gtest_main)
+  target_link_libraries(nanoarrow_testing_test nanoarrow gtest_main
+                        nlohmann_json::nlohmann_json)
   target_link_libraries(c_data_integration_test nanoarrow nanoarrow_c_data_integration
                         gtest_main)
 
@@ -260,9 +285,6 @@ if(NANOARROW_BUILD_TESTS)
 endif()
 
 if(NANOARROW_BUILD_BENCHMARKS)
-  add_subdirectory("thirdparty/benchmark")
-
-  add_executable(schema_benchmark src/nanoarrow/schema_benchmark.cc)
-  target_link_libraries(schema_benchmark PRIVATE nanoarrow benchmark::benchmark_main)
-
+  add_subdirectory(extensions/nanoarrow_ipc)
+  add_subdirectory(dev/benchmarks)
 endif()

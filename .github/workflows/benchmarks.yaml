@@ -25,9 +25,11 @@ on:
     branches:
       - main
     paths:
-      - 'CMakeLists.txt'
       - '.github/workflows/benchmarks.yaml'
-      - 'src/**/*_benchmark.cc'
+      - 'dev/benchmarks/**'
+
+permissions:
+  contents: read
 
 jobs:
   benchmarks:
@@ -36,17 +38,26 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
+      with:
+        cache: 'pip'
 
-    - name: Build nanoarrow
+    - name: Install Python dependencies
       run: |
-        mkdir build && cd build
-        cmake .. -DNANOARROW_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
-        cmake --build .
+        pip install pyarrow asv
 
-    - name: Run benchmarks
+    - name: Genereate fixtures
       run: |
-        cd build
-        for f in $(ls | grep -e "_benchmark"); do
-          echo "::group::$(basename ${f})"
-          ./${f}
-        done
+        cd dev/benchmarks
+        python generate-fixtures.py
+
+    - name: Check C benchmarks
+      run: |
+        cd dev/benchmarks
+        ./benchmark-run-all.sh
+
+    - name: Check Python benchmarks
+      run: |
+        cd dev/benchmarks
+        asv machine --yes
+        asv run --quick --verbose ${{ github.sha }}^!

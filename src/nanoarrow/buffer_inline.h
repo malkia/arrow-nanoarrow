@@ -28,6 +28,28 @@
 extern "C" {
 #endif
 
+// Modified from Arrow C++ (1eb46f76) cpp/src/arrow/chunk_resolver.h#L133-L162
+static inline int64_t ArrowResolveChunk64(int64_t index, const int64_t* offsets,
+                                          int64_t lo, int64_t hi) {
+  // Similar to std::upper_bound(), but slightly different as our offsets
+  // array always starts with 0.
+  int64_t n = hi - lo;
+  // First iteration does not need to check for n > 1
+  // (lo < hi is guaranteed by the precondition).
+  NANOARROW_DCHECK(n > 1);
+  do {
+    const int64_t m = n >> 1;
+    const int64_t mid = lo + m;
+    if (index >= offsets[mid]) {
+      lo = mid;
+      n -= m;
+    } else {
+      n = m;
+    }
+  } while (n > 1);
+  return lo;
+}
+
 static inline int64_t _ArrowGrowByFactor(int64_t current_capacity, int64_t new_capacity) {
   int64_t doubled_capacity = current_capacity * 2;
   if (doubled_capacity > new_capacity) {
@@ -46,6 +68,8 @@ static inline void ArrowBufferInit(struct ArrowBuffer* buffer) {
 
 static inline ArrowErrorCode ArrowBufferSetAllocator(
     struct ArrowBuffer* buffer, struct ArrowBufferAllocator allocator) {
+  // This is not a perfect test for "has a buffer already been allocated"
+  // but is likely to catch most cases.
   if (buffer->data == NULL) {
     buffer->allocator = allocator;
     return NANOARROW_OK;
@@ -55,20 +79,15 @@ static inline ArrowErrorCode ArrowBufferSetAllocator(
 }
 
 static inline void ArrowBufferReset(struct ArrowBuffer* buffer) {
-  if (buffer->data != NULL) {
-    buffer->allocator.free(&buffer->allocator, (uint8_t*)buffer->data,
-                           buffer->capacity_bytes);
-    buffer->data = NULL;
-  }
-
-  buffer->capacity_bytes = 0;
-  buffer->size_bytes = 0;
+  buffer->allocator.free(&buffer->allocator, (uint8_t*)buffer->data,
+                         buffer->capacity_bytes);
+  ArrowBufferInit(buffer);
 }
 
 static inline void ArrowBufferMove(struct ArrowBuffer* src, struct ArrowBuffer* dst) {
   memcpy(dst, src, sizeof(struct ArrowBuffer));
   src->data = NULL;
-  ArrowBufferReset(src);
+  ArrowBufferInit(src);
 }
 
 static inline ArrowErrorCode ArrowBufferResize(struct ArrowBuffer* buffer,

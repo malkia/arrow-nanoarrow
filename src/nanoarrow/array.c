@@ -407,19 +407,16 @@ static ArrowErrorCode ArrowArrayFinalizeBuffers(struct ArrowArray* array) {
   struct ArrowArrayPrivateData* private_data =
       (struct ArrowArrayPrivateData*)array->private_data;
 
-  // The only buffer finalizing this currently does is make sure the data
-  // buffer for (Large)String|Binary is never NULL
-  switch (private_data->storage_type) {
-    case NANOARROW_TYPE_BINARY:
-    case NANOARROW_TYPE_STRING:
-    case NANOARROW_TYPE_LARGE_BINARY:
-    case NANOARROW_TYPE_LARGE_STRING:
-      if (ArrowArrayBuffer(array, 2)->data == NULL) {
-        NANOARROW_RETURN_NOT_OK(ArrowBufferAppendUInt8(ArrowArrayBuffer(array, 2), 0));
-      }
-      break;
-    default:
-      break;
+  for (int i = 0; i < NANOARROW_MAX_FIXED_BUFFERS; i++) {
+    if (private_data->layout.buffer_type[i] == NANOARROW_BUFFER_TYPE_VALIDITY ||
+        private_data->layout.buffer_type[i] == NANOARROW_BUFFER_TYPE_NONE) {
+      continue;
+    }
+
+    struct ArrowBuffer* buffer = ArrowArrayBuffer(array, i);
+    if (buffer->data == NULL) {
+      NANOARROW_RETURN_NOT_OK((ArrowBufferReserve(buffer, 1)));
+    }
   }
 
   for (int64_t i = 0; i < array->n_children; i++) {
@@ -455,7 +452,8 @@ ArrowErrorCode ArrowArrayFinishBuilding(struct ArrowArray* array,
                                         struct ArrowError* error) {
   // Even if the data buffer is size zero, the pointer value needed to be non-null
   // in some implementations (at least one version of Arrow C++ at the time this
-  // was added). Only do this fix if we can assume CPU data access.
+  // was added and C# as later discovered). Only do this fix if we can assume
+  // CPU data access.
   if (validation_level >= NANOARROW_VALIDATION_LEVEL_DEFAULT) {
     NANOARROW_RETURN_NOT_OK_WITH_ERROR(ArrowArrayFinalizeBuffers(array), error);
   }
@@ -903,6 +901,10 @@ static int ArrowArrayViewValidateDefault(struct ArrowArrayView* array_view,
                         (long)array_view->buffer_views[2].size_bytes);
           return EINVAL;
         }
+      } else if (array_view->buffer_views[2].size_bytes == -1) {
+        // If the data buffer size is unknown and there are no bytes in the offset buffer,
+        // set the data buffer size to 0.
+        array_view->buffer_views[2].size_bytes = 0;
       }
       break;
 
@@ -929,6 +931,10 @@ static int ArrowArrayViewValidateDefault(struct ArrowArrayView* array_view,
                         (long)array_view->buffer_views[2].size_bytes);
           return EINVAL;
         }
+      } else if (array_view->buffer_views[2].size_bytes == -1) {
+        // If the data buffer size is unknown and there are no bytes in the offset
+        // buffer, set the data buffer size to 0.
+        array_view->buffer_views[2].size_bytes = 0;
       }
       break;
 

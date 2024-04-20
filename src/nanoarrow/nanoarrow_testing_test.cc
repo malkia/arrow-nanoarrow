@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <functional>
 #include <sstream>
 #include <string>
 
@@ -39,21 +38,24 @@ ArrowErrorCode WriteColumnJSON(std::ostream& out, TestingJSONWriter& writer,
 
 ArrowErrorCode WriteSchemaJSON(std::ostream& out, TestingJSONWriter& writer,
                                const ArrowSchema* schema, ArrowArrayView* array_view) {
+  NANOARROW_UNUSED(array_view);
   return writer.WriteSchema(out, schema);
 }
 
 ArrowErrorCode WriteFieldJSON(std::ostream& out, TestingJSONWriter& writer,
                               const ArrowSchema* schema, ArrowArrayView* array_view) {
+  NANOARROW_UNUSED(array_view);
   return writer.WriteField(out, schema);
 }
 
 ArrowErrorCode WriteTypeJSON(std::ostream& out, TestingJSONWriter& writer,
                              const ArrowSchema* schema, ArrowArrayView* array_view) {
+  NANOARROW_UNUSED(array_view);
   return writer.WriteType(out, schema);
 }
 
-void TestWriteJSON(std::function<ArrowErrorCode(ArrowSchema*)> type_expr,
-                   std::function<ArrowErrorCode(ArrowArray*)> append_expr,
+void TestWriteJSON(ArrowErrorCode (*type_expr)(ArrowSchema*),
+                   ArrowErrorCode (*append_expr)(ArrowArray*),
                    ArrowErrorCode (*test_expr)(std::ostream&, TestingJSONWriter&,
                                                const ArrowSchema*, ArrowArrayView*),
                    const std::string& expected_json,
@@ -61,11 +63,16 @@ void TestWriteJSON(std::function<ArrowErrorCode(ArrowSchema*)> type_expr,
   std::stringstream ss;
 
   nanoarrow::UniqueSchema schema;
-  ASSERT_EQ(type_expr(schema.get()), NANOARROW_OK);
+  if (type_expr != nullptr) {
+    ASSERT_EQ(type_expr(schema.get()), NANOARROW_OK);
+  }
+
   nanoarrow::UniqueArray array;
   ASSERT_EQ(ArrowArrayInitFromSchema(array.get(), schema.get(), nullptr), NANOARROW_OK);
   ASSERT_EQ(ArrowArrayStartAppending(array.get()), NANOARROW_OK);
-  ASSERT_EQ(append_expr(array.get()), NANOARROW_OK);
+  if (append_expr != nullptr) {
+    ASSERT_EQ(append_expr(array.get()), NANOARROW_OK);
+  }
   ASSERT_EQ(ArrowArrayFinishBuildingDefault(array.get(), nullptr), NANOARROW_OK);
 
   nanoarrow::UniqueArrayView array_view;
@@ -87,8 +94,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestColumnNull) {
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_NA);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteColumnJSON,
-      R"({"name": null, "count": 0})");
+      /*append_expr*/ nullptr, &WriteColumnJSON, R"({"name": null, "count": 0})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
@@ -96,8 +102,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestColumnNull) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaSetName(schema, "colname"));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteColumnJSON,
-      R"({"name": "colname", "count": 0})");
+      /*append_expr*/ nullptr, &WriteColumnJSON, R"({"name": "colname", "count": 0})");
 }
 
 TEST(NanoarrowTestingTest, NanoarrowTestingTestColumnInt) {
@@ -105,7 +110,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestColumnInt) {
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_INT32);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteColumnJSON,
+      /*append_expr*/ nullptr, &WriteColumnJSON,
       R"({"name": null, "count": 0, "VALIDITY": [], "DATA": []})");
 
   // Without a null value
@@ -304,7 +309,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestColumnStruct) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaSetTypeStruct(schema, 0));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteColumnJSON,
+      /*append_expr*/ nullptr, &WriteColumnJSON,
       R"({"name": null, "count": 0, "VALIDITY": [], "children": []})");
 
   // Non-empty struct
@@ -320,7 +325,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestColumnStruct) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaSetName(schema->children[1], "col2"));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteColumnJSON,
+      /*append_expr*/ nullptr, &WriteColumnJSON,
       R"({"name": null, "count": 0, "VALIDITY": [], "children": [)"
       R"({"name": "col1", "count": 0}, {"name": "col2", "count": 0}]})");
 }
@@ -334,7 +339,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestColumnDenseUnion) {
             ArrowSchemaSetTypeUnion(schema, NANOARROW_TYPE_DENSE_UNION, 0));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteColumnJSON,
+      /*append_expr*/ nullptr, &WriteColumnJSON,
       R"({"name": null, "count": 0, "TYPE_ID": [], "OFFSET": [], "children": []})");
 }
 
@@ -346,8 +351,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestBatch) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaSetTypeStruct(schema, 0));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteBatchJSON,
-      R"({"count": 0, "columns": []})");
+      /*append_expr*/ nullptr, &WriteBatchJSON, R"({"count": 0, "columns": []})");
 }
 
 TEST(NanoarrowTestingTest, NanoarrowTestingTestSchema) {
@@ -358,8 +362,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestSchema) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaSetTypeStruct(schema, 0));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteSchemaJSON,
-      R"({"fields": []})");
+      /*append_expr*/ nullptr, &WriteSchemaJSON, R"({"fields": []})");
 
   // More than zero fields
   TestWriteJSON(
@@ -372,7 +375,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestSchema) {
             ArrowSchemaSetType(schema->children[1], NANOARROW_TYPE_STRING));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteSchemaJSON,
+      /*append_expr*/ nullptr, &WriteSchemaJSON,
       R"({"fields": [)"
       R"({"name": null, "nullable": true, "type": {"name": "null"}, "children": []}, )"
       R"({"name": null, "nullable": true, "type": {"name": "utf8"}, "children": []}]})");
@@ -384,7 +387,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldBasic) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaInitFromType(schema, NANOARROW_TYPE_NA));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      /*append_expr*/ nullptr, &WriteFieldJSON,
       R"({"name": null, "nullable": true, "type": {"name": "null"}, "children": []})");
 
   TestWriteJSON(
@@ -393,7 +396,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldBasic) {
         schema->flags = 0;
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      /*append_expr*/ nullptr, &WriteFieldJSON,
       R"({"name": null, "nullable": false, "type": {"name": "null"}, "children": []})");
 
   TestWriteJSON(
@@ -402,7 +405,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldBasic) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaSetName(schema, "colname"));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      /*append_expr*/ nullptr, &WriteFieldJSON,
       R"({"name": "colname", "nullable": true, "type": {"name": "null"}, "children": []})");
 }
 
@@ -415,7 +418,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldDict) {
             ArrowSchemaInitFromType(schema->dictionary, NANOARROW_TYPE_STRING));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      /*append_expr*/ nullptr, &WriteFieldJSON,
       R"({"name": null, "nullable": true, "type": {"name": "utf8"}, )"
       R"("dictionary": {"id": 0, "indexType": {"name": "int", "bitWidth": 16, "isSigned": true}, )"
       R"("isOrdered": false}, "children": []})");
@@ -428,7 +431,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldMetadata) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaInitFromType(schema, NANOARROW_TYPE_NA));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      /*append_expr*/ nullptr, &WriteFieldJSON,
       R"({"name": null, "nullable": true, "type": {"name": "null"}, "children": []})");
 
   // Non-null but zero-size metadata
@@ -438,7 +441,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldMetadata) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaSetMetadata(schema, "\0\0\0\0"));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      /*append_expr*/ nullptr, &WriteFieldJSON,
       R"({"name": null, "nullable": true, "type": {"name": "null"}, "children": [], "metadata": []})");
 
   // Non-zero size metadata
@@ -456,9 +459,20 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldMetadata) {
             ArrowSchemaSetMetadata(schema, reinterpret_cast<const char*>(buffer->data)));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      /*append_expr*/ nullptr, &WriteFieldJSON,
       R"({"name": null, "nullable": true, "type": {"name": "null"}, "children": [], )"
       R"("metadata": [{"key": "k1", "value": "v1"}, {"key": "k2", "value": "v2"}]})");
+
+  // Ensure we can turn off metadata
+  TestWriteJSON(
+      [](ArrowSchema* schema) {
+        NANOARROW_RETURN_NOT_OK(ArrowSchemaInitFromType(schema, NANOARROW_TYPE_NA));
+        NANOARROW_RETURN_NOT_OK(ArrowSchemaSetMetadata(schema, "\0\0\0\0"));
+        return NANOARROW_OK;
+      },
+      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      R"({"name": null, "nullable": true, "type": {"name": "null"}, "children": []})",
+      [](TestingJSONWriter& writer) { writer.set_include_metadata(false); });
 }
 
 TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldNested) {
@@ -472,7 +486,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldNested) {
             ArrowSchemaSetType(schema->children[1], NANOARROW_TYPE_STRING));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteFieldJSON,
+      /*append_expr*/ nullptr, &WriteFieldJSON,
       R"({"name": null, "nullable": true, "type": {"name": "struct"}, "children": [)"
       R"({"name": null, "nullable": true, "type": {"name": "null"}, "children": []}, )"
       R"({"name": null, "nullable": true, "type": {"name": "utf8"}, "children": []}]})");
@@ -483,78 +497,72 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypePrimitive) {
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_NA);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "null"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "null"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_BOOL);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "bool"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "bool"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_INT8);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "int", "bitWidth": 8, "isSigned": true})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_UINT8);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "int", "bitWidth": 8, "isSigned": false})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_HALF_FLOAT);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "floatingpoint", "precision": "HALF"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_FLOAT);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "floatingpoint", "precision": "SINGLE"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_DOUBLE);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "floatingpoint", "precision": "DOUBLE"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_STRING);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "utf8"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "utf8"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_LARGE_STRING);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "largeutf8"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "largeutf8"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_BINARY);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "binary"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "binary"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
         return ArrowSchemaInitFromType(schema, NANOARROW_TYPE_LARGE_BINARY);
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "largebinary"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "largebinary"})");
 }
 
 TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
@@ -565,7 +573,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
             ArrowSchemaSetTypeFixedSize(schema, NANOARROW_TYPE_FIXED_SIZE_BINARY, 123));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "fixedsizebinary", "byteWidth": 123})");
 
   TestWriteJSON(
@@ -575,7 +583,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
             ArrowSchemaSetTypeDecimal(schema, NANOARROW_TYPE_DECIMAL128, 10, 3));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "decimal", "bitWidth": 128, "precision": 10, "scale": 3})");
 
   TestWriteJSON(
@@ -584,8 +592,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
         NANOARROW_RETURN_NOT_OK(ArrowSchemaSetTypeStruct(schema, 0));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "struct"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "struct"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
@@ -595,8 +602,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
             ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_INT32));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "list"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "list"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
@@ -608,8 +614,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
             ArrowSchemaSetType(schema->children[0]->children[1], NANOARROW_TYPE_INT32));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "map", "keysSorted": false})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "map", "keysSorted": false})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
@@ -622,8 +627,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
         schema->flags = ARROW_FLAG_MAP_KEYS_SORTED;
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "map", "keysSorted": true})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "map", "keysSorted": true})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
@@ -633,8 +637,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
             ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_INT32));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
-      R"({"name": "largelist"})");
+      /*append_expr*/ nullptr, &WriteTypeJSON, R"({"name": "largelist"})");
 
   TestWriteJSON(
       [](ArrowSchema* schema) {
@@ -645,7 +648,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeParameterized) {
             ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_INT32));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "fixedsizelist", "listSize": 12})");
 }
 
@@ -657,7 +660,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeUnion) {
             ArrowSchemaSetTypeUnion(schema, NANOARROW_TYPE_SPARSE_UNION, 0));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "union", "mode": "SPARSE", "typeIds": []})");
 
   TestWriteJSON(
@@ -671,7 +674,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeUnion) {
             ArrowSchemaSetType(schema->children[1], NANOARROW_TYPE_INT32));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "union", "mode": "SPARSE", "typeIds": [0,1]})");
 
   TestWriteJSON(
@@ -681,7 +684,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeUnion) {
             ArrowSchemaSetTypeUnion(schema, NANOARROW_TYPE_DENSE_UNION, 0));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "union", "mode": "DENSE", "typeIds": []})");
 
   TestWriteJSON(
@@ -695,7 +698,7 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestTypeUnion) {
             ArrowSchemaSetType(schema->children[1], NANOARROW_TYPE_INT32));
         return NANOARROW_OK;
       },
-      [](ArrowArray* array) { return NANOARROW_OK; }, &WriteTypeJSON,
+      /*append_expr*/ nullptr, &WriteTypeJSON,
       R"({"name": "union", "mode": "DENSE", "typeIds": [0,1]})");
 }
 
@@ -1336,9 +1339,15 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestFieldDictionaryRoundtrip) {
       R"("isOrdered": true}, "children": []})");
 }
 
-void AssertSchemasCompareEqual(ArrowSchema* actual, ArrowSchema* expected) {
+void AssertSchemasCompareEqual(
+    ArrowSchema* actual, ArrowSchema* expected,
+    void (*setup_comparison)(TestingJSONComparison&) = nullptr) {
   TestingJSONComparison comparison;
   std::stringstream msg;
+
+  if (setup_comparison != nullptr) {
+    setup_comparison(comparison);
+  }
 
   ASSERT_EQ(comparison.CompareSchema(actual, expected), NANOARROW_OK);
   EXPECT_EQ(comparison.num_differences(), 0);
@@ -1346,10 +1355,16 @@ void AssertSchemasCompareEqual(ArrowSchema* actual, ArrowSchema* expected) {
   EXPECT_EQ(msg.str(), "");
 }
 
-void AssertSchemasCompareUnequal(ArrowSchema* actual, ArrowSchema* expected,
-                                 int num_differences, const std::string& differences) {
+void AssertSchemasCompareUnequal(
+    ArrowSchema* actual, ArrowSchema* expected, int num_differences,
+    const std::string& differences,
+    void (*setup_comparison)(TestingJSONComparison&) = nullptr) {
   TestingJSONComparison comparison;
   std::stringstream msg;
+
+  if (setup_comparison != nullptr) {
+    setup_comparison(comparison);
+  }
 
   ASSERT_EQ(comparison.CompareSchema(actual, expected), NANOARROW_OK);
   EXPECT_EQ(comparison.num_differences(), num_differences);
@@ -1373,25 +1388,34 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestSchemaComparison) {
   actual->flags = 0;
   AssertSchemasCompareUnequal(actual.get(), expected.get(), /*num_differences*/ 1,
                               "Path: \n- .flags: 0\n+ .flags: 2\n\n");
+  // With different top-level flags but turning off that comparison
+  AssertSchemasCompareEqual(actual.get(), expected.get(),
+                            [](TestingJSONComparison& comparison) {
+                              comparison.set_compare_batch_flags((false));
+                            });
   actual->flags = expected->flags;
 
   // With different top-level metadata
   nanoarrow::UniqueBuffer buf;
   ASSERT_EQ(ArrowMetadataBuilderInit(buf.get(), nullptr), NANOARROW_OK);
-  ASSERT_EQ(
-      ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key"), ArrowCharView("value")),
-      NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key1"),
+                                       ArrowCharView("value1")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key2"),
+                                       ArrowCharView("value2")),
+            NANOARROW_OK);
   ASSERT_EQ(ArrowSchemaSetMetadata(actual.get(), reinterpret_cast<char*>(buf->data)),
             NANOARROW_OK);
 
   AssertSchemasCompareUnequal(actual.get(), expected.get(), /*num_differences*/ 1,
                               /*differences*/
-                              "Path: "
+                              "Path: .metadata"
                               R"(
-- .metadata: [{"key": "key", "value": "value"}]
-+ .metadata: null
+- [{"key": "key1", "value": "value1"}, {"key": "key2", "value": "value2"}]
++ null
 
 )");
+
   ASSERT_EQ(ArrowSchemaSetMetadata(actual.get(), nullptr), NANOARROW_OK);
 
   // With different children
@@ -1451,6 +1475,191 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestSchemaComparisonMap) {
   AssertSchemasCompareEqual(actual2.get(), expected.get());
 }
 
+TEST(NanoarrowTestingTest, NanoarrowTestingTestMetadataComparison) {
+  nanoarrow::UniqueSchema actual;
+  nanoarrow::UniqueSchema expected;
+  nanoarrow::UniqueBuffer buf;
+
+  // Start with two identical schemas and ensure there are no differences
+  ArrowSchemaInit(actual.get());
+  ASSERT_EQ(ArrowSchemaSetTypeStruct(actual.get(), 1), NANOARROW_OK);
+  ASSERT_EQ(ArrowSchemaSetType(actual->children[0], NANOARROW_TYPE_NA), NANOARROW_OK);
+  ASSERT_EQ(ArrowSchemaDeepCopy(actual.get(), expected.get()), NANOARROW_OK);
+  AssertSchemasCompareEqual(actual.get(), expected.get());
+
+  // With different top-level metadata that are not equivalent because of order
+  buf.reset();
+  ASSERT_EQ(ArrowMetadataBuilderInit(buf.get(), nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key1"),
+                                       ArrowCharView("value1")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key2"),
+                                       ArrowCharView("value2")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowSchemaSetMetadata(actual.get(), reinterpret_cast<char*>(buf->data)),
+            NANOARROW_OK);
+
+  buf.reset();
+  ASSERT_EQ(ArrowMetadataBuilderInit(buf.get(), nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key2"),
+                                       ArrowCharView("value2")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key1"),
+                                       ArrowCharView("value1")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowSchemaSetMetadata(expected.get(), reinterpret_cast<char*>(buf->data)),
+            NANOARROW_OK);
+
+  // ...using the comparison that considers ordering
+  AssertSchemasCompareUnequal(actual.get(), expected.get(), /*num_differences*/ 1,
+                              /*differences*/
+                              "Path: .metadata"
+                              R"(
+- [{"key": "key1", "value": "value1"}, {"key": "key2", "value": "value2"}]
++ [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "value1"}]
+
+)");
+
+  // ...using the comparison that does *not* consider ordering
+  AssertSchemasCompareEqual(actual.get(), expected.get(),
+                            [](TestingJSONComparison& comparison) {
+                              comparison.set_compare_metadata_order(false);
+                            });
+
+  // With different top-level metadata that are not equivalent because of number of items
+  ASSERT_EQ(ArrowSchemaSetMetadata(actual.get(), nullptr), NANOARROW_OK);
+
+  // ...using the comparison that considers ordering
+  AssertSchemasCompareUnequal(actual.get(), expected.get(),
+                              /*num_differences*/ 1,
+                              /*differences*/
+                              "Path: .metadata"
+                              R"(
+- null
++ [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "value1"}]
+
+)",
+                              [](TestingJSONComparison& comparison) {
+                                comparison.set_compare_metadata_order(false);
+                              });
+
+  // ...using the comparison that does *not* consider ordering
+  AssertSchemasCompareUnequal(actual.get(), expected.get(),
+                              /*num_differences*/ 1,
+                              /*differences*/
+                              "Path: .metadata"
+                              R"(
+- null
++ [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "value1"}]
+
+)",
+                              [](TestingJSONComparison& comparison) {
+                                comparison.set_compare_metadata_order(false);
+                              });
+
+  // With different top-level metadata that are not equivalent because of item content
+  buf.reset();
+  ASSERT_EQ(ArrowMetadataBuilderInit(buf.get(), nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key2"),
+                                       ArrowCharView("value2")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key1"),
+                                       ArrowCharView("gazornenplat")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowSchemaSetMetadata(actual.get(), reinterpret_cast<char*>(buf->data)),
+            NANOARROW_OK);
+
+  // ...using the schema comparison that considers order
+  AssertSchemasCompareUnequal(actual.get(), expected.get(),
+                              /*num_differences*/ 1,
+                              /*differences*/
+                              "Path: .metadata"
+                              R"(
+- [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "gazornenplat"}]
++ [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "value1"}]
+
+)");
+
+  // ...and using the schema comparison that does *not* consider order
+  AssertSchemasCompareUnequal(actual.get(), expected.get(),
+                              /*num_differences*/ 1,
+                              /*differences*/
+                              "Path: .metadata"
+                              R"(
+- [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "gazornenplat"}]
++ [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "value1"}]
+
+)",
+                              [](TestingJSONComparison& comparison) {
+                                comparison.set_compare_metadata_order(false);
+                              });
+
+  // With different top-level metadata that are not equivalent because of item keys
+  buf.reset();
+  ASSERT_EQ(ArrowMetadataBuilderInit(buf.get(), nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key2"),
+                                       ArrowCharView("value2")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key3"),
+                                       ArrowCharView("value1")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowSchemaSetMetadata(actual.get(), reinterpret_cast<char*>(buf->data)),
+            NANOARROW_OK);
+
+  // ...using the schema comparison that considers order
+  AssertSchemasCompareUnequal(actual.get(), expected.get(),
+                              /*num_differences*/ 1,
+                              /*differences*/
+                              "Path: .metadata"
+                              R"(
+- [{"key": "key2", "value": "value2"}, {"key": "key3", "value": "value1"}]
++ [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "value1"}]
+
+)");
+
+  // ...and using the schema comparison that does *not* consider order
+  AssertSchemasCompareUnequal(actual.get(), expected.get(),
+                              /*num_differences*/ 1,
+                              /*differences*/
+                              "Path: .metadata"
+                              R"(
+- [{"key": "key2", "value": "value2"}, {"key": "key3", "value": "value1"}]
++ [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "value1"}]
+
+)",
+                              [](TestingJSONComparison& comparison) {
+                                comparison.set_compare_metadata_order(false);
+                              });
+
+  // Metadata that are not equal and contain duplicate keys
+  buf.reset();
+  ASSERT_EQ(ArrowMetadataBuilderInit(buf.get(), nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key2"),
+                                       ArrowCharView("value2")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowMetadataBuilderAppend(buf.get(), ArrowCharView("key2"),
+                                       ArrowCharView("value2 again")),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowSchemaSetMetadata(actual.get(), reinterpret_cast<char*>(buf->data)),
+            NANOARROW_OK);
+
+  // ...using the schema comparison that considers order
+  AssertSchemasCompareUnequal(actual.get(), expected.get(),
+                              /*num_differences*/ 1,
+                              /*differences*/
+                              "Path: .metadata"
+                              R"(
+- [{"key": "key2", "value": "value2"}, {"key": "key2", "value": "value2 again"}]
++ [{"key": "key2", "value": "value2"}, {"key": "key1", "value": "value1"}]
+
+)");
+
+  // Comparison is not implemented for the comparison that does not consider order
+  TestingJSONComparison comparison;
+  comparison.set_compare_metadata_order(false);
+  ASSERT_EQ(comparison.CompareSchema(actual.get(), expected.get()), ENOTSUP);
+}
+
 TEST(NanoarrowTestingTest, NanoarrowTestingTestArrayComparison) {
   nanoarrow::UniqueSchema schema;
   nanoarrow::UniqueArray actual;
@@ -1502,6 +1711,45 @@ TEST(NanoarrowTestingTest, NanoarrowTestingTestArrayComparison) {
 + {"name": null, "count": 1}
 
 )");
+}
+
+TEST(NanoarrowTestingTest, NanoarrowTestingTestFloatingPointArrayComparison) {
+  nanoarrow::UniqueSchema schema;
+  nanoarrow::UniqueArray actual;
+  nanoarrow::UniqueArray expected;
+  TestingJSONComparison comparison;
+  std::stringstream msg;
+
+  ArrowSchemaInit(schema.get());
+  ASSERT_EQ(ArrowSchemaSetTypeStruct(schema.get(), 1), NANOARROW_OK);
+  ASSERT_EQ(ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_DOUBLE), NANOARROW_OK);
+  ASSERT_EQ(comparison.SetSchema(schema.get()), NANOARROW_OK);
+
+  ASSERT_EQ(ArrowArrayInitFromSchema(actual.get(), schema.get(), nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayAppendDouble(actual->children[0], 1.23456789), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayFinishBuildingDefault(actual.get(), nullptr), NANOARROW_OK);
+
+  ASSERT_EQ(ArrowArrayInitFromSchema(expected.get(), schema.get(), nullptr),
+            NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayAppendDouble(expected->children[0], 1.23456), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayFinishBuildingDefault(expected.get(), nullptr), NANOARROW_OK);
+
+  // Default precision: all decimal places
+  ASSERT_EQ(comparison.CompareBatch(actual.get(), expected.get()), NANOARROW_OK);
+  EXPECT_EQ(comparison.num_differences(), 1);
+  comparison.ClearDifferences();
+
+  // With just enough decimal places to trigger a difference
+  comparison.set_compare_float_precision(5);
+  ASSERT_EQ(comparison.CompareBatch(actual.get(), expected.get()), NANOARROW_OK);
+  EXPECT_EQ(comparison.num_differences(), 1);
+  comparison.ClearDifferences();
+
+  // With just few enough decimal places to be considered equivalent
+  comparison.set_compare_float_precision(4);
+  ASSERT_EQ(comparison.CompareBatch(actual.get(), expected.get()), NANOARROW_OK);
+  EXPECT_EQ(comparison.num_differences(), 0);
+  comparison.ClearDifferences();
 }
 
 TEST(NanoarrowTestingTest, NanoarrowTestingTestArrayWithDictionaryComparison) {

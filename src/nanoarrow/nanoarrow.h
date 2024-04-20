@@ -179,10 +179,8 @@ struct ArrowBufferAllocator ArrowBufferAllocatorDefault(void);
 /// attach a custom deallocator to an ArrowBuffer. This may be used to
 /// avoid copying an existing buffer that was not allocated using the
 /// infrastructure provided here (e.g., by an R or Python object).
-struct ArrowBufferAllocator ArrowBufferDeallocator(
-    void (*custom_free)(struct ArrowBufferAllocator* allocator, uint8_t* ptr,
-                        int64_t size),
-    void* private_data);
+struct ArrowBufferAllocator ArrowBufferDeallocator(ArrowBufferDeallocatorCallback,
+                                                   void* private_data);
 
 /// @}
 
@@ -291,6 +289,14 @@ ArrowErrorCode ArrowDecimalSetDigits(struct ArrowDecimal* decimal,
 ArrowErrorCode ArrowDecimalAppendDigitsToBuffer(const struct ArrowDecimal* decimal,
                                                 struct ArrowBuffer* buffer);
 
+/// \brief Resolve a chunk index from increasing int64_t offsets
+///
+/// Given a buffer of increasing int64_t offsets that begin with 0 (e.g., offset buffer
+/// of a large type, run ends of a chunked array implementation), resolve a value v
+/// where lo <= v < hi such that offsets[v] <= index < offsets[v + 1].
+static inline int64_t ArrowResolveChunk64(int64_t index, const int64_t* offsets,
+                                          int64_t lo, int64_t hi);
+
 /// @}
 
 /// \defgroup nanoarrow-schema Creating schemas
@@ -371,7 +377,7 @@ ArrowErrorCode ArrowSchemaSetTypeDateTime(struct ArrowSchema* schema, enum Arrow
                                           enum ArrowTimeUnit time_unit,
                                           const char* timezone);
 
-/// \brief Seet the format field of a union schema
+/// \brief Set the format field of a union schema
 ///
 /// Returns EINVAL for a type that is not NANOARROW_TYPE_DENSE_UNION
 /// or NANOARROW_TYPE_SPARSE_UNION. The specified number of children are

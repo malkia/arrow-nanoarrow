@@ -15,15 +15,32 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from nanoarrow._lib import CDeviceArray, Device
-from nanoarrow.c_lib import c_array
+from nanoarrow._lib import DEVICE_CPU, CDeviceArray, Device, DeviceType  # noqa: F401
+from nanoarrow.c_lib import c_array, c_schema
 
 
-def c_device_array(obj):
-    if isinstance(obj, CDeviceArray):
+def cpu():
+    return DEVICE_CPU
+
+
+def resolve(device_type, device_id):
+    return Device.resolve(device_type, device_id)
+
+
+def c_device_array(obj, schema=None):
+    if schema is not None:
+        schema = c_schema(schema)
+
+    if isinstance(obj, CDeviceArray) and schema is None:
         return obj
 
-    # Only CPU for now
-    cpu_array = c_array(obj)
+    if hasattr(obj, "__arrow_c_device_array__"):
+        schema_capsule = None if schema is None else schema.__arrow_c_schema__()
+        schema_capsule, device_array_capsule = obj.__arrow_c_device_array__(
+            requested_schema=schema_capsule
+        )
+        return CDeviceArray._import_from_c_capsule(schema_capsule, device_array_capsule)
 
-    return Device.cpu()._array_init(cpu_array._addr(), cpu_array.schema)
+    # Attempt to create a CPU array and wrap it
+    cpu_array = c_array(obj, schema=schema)
+    return cpu()._array_init(cpu_array._addr(), cpu_array.schema)

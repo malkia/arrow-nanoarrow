@@ -72,7 +72,7 @@ def test_c_schema_basic():
     schema = na.allocate_c_schema()
     assert schema.is_valid() is False
     assert schema._to_string() == "[invalid: schema is released]"
-    assert repr(schema) == "<released nanoarrow.c_lib.CSchema>"
+    assert repr(schema) == "<nanoarrow.c_lib.CSchema <released>>"
 
     schema = na.c_schema(pa.schema([pa.field("some_name", pa.int32())]))
 
@@ -175,7 +175,7 @@ def test_c_schema_view_extra_params():
 def test_c_array_empty():
     array = na.allocate_c_array()
     assert array.is_valid() is False
-    assert repr(array) == "<released nanoarrow.c_lib.CArray>"
+    assert repr(array) == "<nanoarrow.c_lib.CArray <released>>"
 
 
 def test_c_array():
@@ -218,7 +218,7 @@ def test_c_array_view():
 
     assert view.storage_type == "int32"
     assert "- storage_type: 'int32'" in repr(view)
-    assert "<int32 data[12 b] 1 2 3>" in repr(view)
+    assert "data <int32[12 b] 1 2 3>" in repr(view)
 
     data_buffer = memoryview(view.buffer(1))
     data_buffer_copy = bytes(data_buffer)
@@ -369,6 +369,22 @@ def test_buffers_bool():
     # Check via buffer get_item interface
     assert [data_buffer[i] for i in range(len(data_buffer))] == list(data_buffer)
 
+    # Check via element interface
+    assert data_buffer.n_elements == 8
+    assert list(data_buffer.elements()) == [True] * 3 + [False] * 5
+    assert [data_buffer.element(i) for i in range(data_buffer.n_elements)] == list(
+        data_buffer.elements()
+    )
+
+    with pytest.raises(IndexError):
+        data_buffer[8]
+    with pytest.raises(IndexError):
+        data_buffer[-1]
+    with pytest.raises(IndexError):
+        next(data_buffer.elements(-1, 4))
+    with pytest.raises(IndexError):
+        next(data_buffer.elements(7, 2))
+
     # Check repr
     assert "11100000" in repr(data_buffer)
 
@@ -455,7 +471,7 @@ def test_buffers_interval_month_day_nano():
 def test_c_array_stream():
     array_stream = na.allocate_c_array_stream()
     assert na.c_array_stream(array_stream) is array_stream
-    assert repr(array_stream) == "<released nanoarrow.c_lib.CArrayStream>"
+    assert repr(array_stream) == "<nanoarrow.c_lib.CArrayStream <released>>"
 
     assert array_stream.is_valid() is False
     with pytest.raises(RuntimeError):

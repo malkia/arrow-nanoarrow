@@ -324,6 +324,41 @@ TEST(ArrayTest, ArrayTestValidateMinimalBufferAccess) {
   ArrowArrayRelease(&array);
 }
 
+class UnparameterizedTypeTestFixture : public ::testing::TestWithParam<enum ArrowType> {
+ protected:
+  enum ArrowType data_type;
+};
+
+TEST_P(UnparameterizedTypeTestFixture, ArrayTestBuildEmptyArray) {
+  struct ArrowArray array;
+  ASSERT_EQ(ArrowArrayInitFromType(&array, GetParam()), NANOARROW_OK);
+
+  EXPECT_EQ(ArrowArrayStartAppending(&array), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayFinishBuildingDefault(&array, nullptr), NANOARROW_OK);
+
+  EXPECT_EQ(array.offset, 0);
+  EXPECT_EQ(array.length, 0);
+  EXPECT_EQ(array.null_count, 0);
+
+  // For all of these, the validity buffer is the first buffer and should be NULL;
+  // however, other buffers should not be NULL.
+  for (int64_t i = 1; i < array.n_buffers; i++) {
+    if (i == 0) {
+      EXPECT_EQ(array.buffers[i], nullptr);
+    } else {
+      EXPECT_NE(array.buffers[i], nullptr);
+    }
+  }
+
+  ArrowArrayRelease(&array);
+}
+
+// We don't need to exhaustively check here...just a few different categories
+// of inputs to ensure our buffer finalizing worked.
+INSTANTIATE_TEST_SUITE_P(NanoarrowIpcTest, UnparameterizedTypeTestFixture,
+                         ::testing::Values(NANOARROW_TYPE_NA, NANOARROW_TYPE_INT32,
+                                           NANOARROW_TYPE_BINARY, NANOARROW_TYPE_STRUCT));
+
 TEST(ArrayTest, ArrayTestAppendToNullArray) {
   struct ArrowArray array;
   ASSERT_EQ(ArrowArrayInitFromType(&array, NANOARROW_TYPE_NA), NANOARROW_OK);
@@ -848,9 +883,9 @@ TEST(ArrayTest, ArrayTestAppendToFixedSizeBinaryArray) {
   ASSERT_EQ(ArrowArrayReserve(&array, 5), NANOARROW_OK);
   EXPECT_EQ(ArrowArrayBuffer(&array, 1)->capacity_bytes, 5 * 5);
 
-  EXPECT_EQ(ArrowArrayAppendBytes(&array, {"12345", 5}), NANOARROW_OK);
+  EXPECT_EQ(ArrowArrayAppendBytes(&array, {{"12345"}, 5}), NANOARROW_OK);
   EXPECT_EQ(ArrowArrayAppendNull(&array, 2), NANOARROW_OK);
-  EXPECT_EQ(ArrowArrayAppendBytes(&array, {"67890", 5}), NANOARROW_OK);
+  EXPECT_EQ(ArrowArrayAppendBytes(&array, {{"67890"}, 5}), NANOARROW_OK);
   EXPECT_EQ(ArrowArrayAppendEmpty(&array, 1), NANOARROW_OK);
   EXPECT_EQ(ArrowArrayFinishBuildingDefault(&array, nullptr), NANOARROW_OK);
 
@@ -1662,6 +1697,18 @@ TEST(ArrayTest, ArrayViewTestString) {
 
   struct ArrowArray array;
 
+  // Build + check zero length using append mode
+  ASSERT_EQ(ArrowArrayInitFromType(&array, NANOARROW_TYPE_STRING), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayStartAppending(&array), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayFinishBuildingDefault(&array, nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayViewSetArray(&array_view, &array, &error), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayViewValidate(&array_view, NANOARROW_VALIDATION_LEVEL_FULL, &error),
+            NANOARROW_OK);
+  EXPECT_EQ(array_view.buffer_views[0].size_bytes, 0);
+  EXPECT_EQ(array_view.buffer_views[1].size_bytes, 0);
+  EXPECT_EQ(array_view.buffer_views[2].size_bytes, 0);
+  ArrowArrayRelease(&array);
+
   // Build + check zero length
   ASSERT_EQ(ArrowArrayInitFromType(&array, NANOARROW_TYPE_STRING), NANOARROW_OK);
   array.null_count = 0;
@@ -1744,8 +1791,20 @@ TEST(ArrayTest, ArrayViewTestLargeString) {
 
   struct ArrowArray array;
 
+  // Build + check zero length using append mode
+  ASSERT_EQ(ArrowArrayInitFromType(&array, NANOARROW_TYPE_LARGE_STRING), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayStartAppending(&array), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayFinishBuildingDefault(&array, nullptr), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayViewSetArray(&array_view, &array, &error), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayViewValidate(&array_view, NANOARROW_VALIDATION_LEVEL_FULL, &error),
+            NANOARROW_OK);
+  EXPECT_EQ(array_view.buffer_views[0].size_bytes, 0);
+  EXPECT_EQ(array_view.buffer_views[1].size_bytes, 0);
+  EXPECT_EQ(array_view.buffer_views[2].size_bytes, 0);
+  ArrowArrayRelease(&array);
+
   // Build + check zero length
-  ASSERT_EQ(ArrowArrayInitFromType(&array, NANOARROW_TYPE_STRING), NANOARROW_OK);
+  ASSERT_EQ(ArrowArrayInitFromType(&array, NANOARROW_TYPE_LARGE_STRING), NANOARROW_OK);
   array.null_count = 0;
   EXPECT_EQ(ArrowArrayViewSetArray(&array_view, &array, &error), NANOARROW_OK);
   EXPECT_EQ(ArrowArrayViewValidate(&array_view, NANOARROW_VALIDATION_LEVEL_FULL, &error),

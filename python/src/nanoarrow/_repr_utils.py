@@ -20,14 +20,30 @@
 # after editing when working with an editable installation)
 
 
+def make_class_label(obj, module=None):
+    if module is None:
+        module = obj.__class__.__module__
+    return f"{module}.{obj.__class__.__name__}"
+
+
+def c_schema_to_string(obj, max_char_width=80):
+    max_char_width = max(max_char_width, 10)
+    c_schema_string = obj._to_string(recursive=True, max_chars=max_char_width + 1)
+    if len(c_schema_string) > max_char_width:
+        return c_schema_string[: (max_char_width - 3)] + "..."
+    else:
+        return c_schema_string
+
+
 def schema_repr(schema, indent=0):
     indent_str = " " * indent
+    class_label = make_class_label(schema, module="nanoarrow.c_lib")
     if schema._addr() == 0:
-        return "<NULL nanoarrow.c_lib.CSchema>"
+        return f"<{class_label} <NULL>>"
     elif not schema.is_valid():
-        return "<released nanoarrow.c_lib.CSchema>"
+        return f"<{class_label} <released>>"
 
-    lines = [f"<nanoarrow.c_lib.CSchema {schema._to_string()}>"]
+    lines = [f"<{class_label} {schema._to_string()}>"]
 
     for attr in ("format", "name", "flags"):
         attr_repr = repr(getattr(schema, attr))
@@ -60,15 +76,16 @@ def array_repr(array, indent=0, max_char_width=80):
         max_char_width = 20
 
     indent_str = " " * indent
+    class_label = make_class_label(array, module="nanoarrow.c_lib")
     if array._addr() == 0:
-        return "<NULL nanoarrow.c_lib.CArray>"
+        return f"<{class_label} <NULL>>"
     elif not array.is_valid():
-        return "<released nanoarrow.c_lib.CArray>"
+        return f"<{class_label} <released>>"
 
     schema_string = array.schema._to_string(
         max_chars=max_char_width - indent - 23, recursive=True
     )
-    lines = [f"<nanoarrow.c_lib.CArray {schema_string}>"]
+    lines = [f"<{class_label} {schema_string}>"]
     for attr in ("length", "offset", "null_count", "buffers"):
         attr_repr = repr(getattr(array, attr))
         lines.append(f"{indent_str}- {attr}: {attr_repr}")
@@ -88,8 +105,10 @@ def array_repr(array, indent=0, max_char_width=80):
 
 
 def schema_view_repr(schema_view):
+    class_label = make_class_label(schema_view, module="nanoarrow.c_lib")
+
     lines = [
-        "<nanoarrow.c_lib.CSchemaView>",
+        f"<{class_label}>",
         f"- type: {repr(schema_view.type)}",
         f"- storage_type: {repr(schema_view.storage_type)}",
     ]
@@ -109,17 +128,20 @@ def schema_view_repr(schema_view):
 
 def array_view_repr(array_view, max_char_width=80, indent=0):
     indent_str = " " * indent
+    class_label = make_class_label(array_view, module="nanoarrow.c_lib")
 
-    lines = ["<nanoarrow.c_lib.CArrayView>"]
+    lines = [f"<{class_label}>"]
 
     for attr in ("storage_type", "length", "offset", "null_count"):
         attr_repr = repr(getattr(array_view, attr))
         lines.append(f"{indent_str}- {attr}: {attr_repr}")
 
     lines.append(f"{indent_str}- buffers[{array_view.n_buffers}]:")
-    for buffer in array_view.buffers:
+    for i, buffer in enumerate(array_view.buffers):
+        buffer_type = array_view.buffer_type(i)
         lines.append(
-            f"{indent_str}  - <{buffer_view_repr(buffer, max_char_width - indent - 4)}>"
+            f"{indent_str}  - {buffer_type} "
+            f"<{buffer_view_repr(buffer, max_char_width - indent - 4 - len(buffer))}>"
         )
 
     if array_view.dictionary:
@@ -144,10 +166,10 @@ def buffer_view_repr(buffer_view, max_char_width=80):
     if max_char_width < 20:
         max_char_width = 20
 
-    prefix = f"{buffer_view.data_type} {buffer_view.type}"
+    prefix = f"{buffer_view.data_type}"
     prefix += f"[{buffer_view.size_bytes} b]"
 
-    if buffer_view.device_type == 1:
+    if buffer_view.device.device_type_id == 1:
         return (
             prefix
             + " "
@@ -188,12 +210,14 @@ def buffer_view_preview_cpu(buffer_view, max_char_width):
 
 
 def array_stream_repr(array_stream, max_char_width=80):
-    if array_stream._addr() == 0:
-        return "<NULL nanoarrow.c_lib.CArrayStream>"
-    elif not array_stream.is_valid():
-        return "<released nanoarrow.c_lib.CArrayStream>"
+    class_label = make_class_label(array_stream, module="nanoarrow.c_lib")
 
-    lines = ["<nanoarrow.c_lib.CArrayStream>"]
+    if array_stream._addr() == 0:
+        return f"<{class_label} <NULL>>"
+    elif not array_stream.is_valid():
+        return f"<{class_label} <released>>"
+
+    lines = [f"<{class_label}>"]
     try:
         schema = array_stream.get_schema()
         schema_string = schema._to_string(max_chars=max_char_width - 16, recursive=True)
@@ -205,15 +229,22 @@ def array_stream_repr(array_stream, max_char_width=80):
 
 
 def device_array_repr(device_array):
-    title_line = "<nanoarrow.device.c_lib.CDeviceArray>"
-    device_type = f"- device_type: {device_array.device_type}"
+    class_label = make_class_label(device_array, module="nanoarrow.device")
+
+    title_line = f"<{class_label}>"
+    device_type = (
+        f"- device_type: {device_array.device_type.name} "
+        f"<{device_array.device_type_id}>"
+    )
     device_id = f"- device_id: {device_array.device_id}"
     array = f"- array: {array_repr(device_array.array, indent=2)}"
     return "\n".join((title_line, device_type, device_id, array))
 
 
 def device_repr(device):
-    title_line = "<nanoarrow.device.Device>"
-    device_type = f"- device_type: {device.device_type}"
+    class_label = make_class_label(device, module="nanoarrow.device")
+
+    title_line = f"<{class_label}>"
+    device_type = f"- device_type: {device.device_type.name} <{device.device_type_id}>"
     device_id = f"- device_id: {device.device_id}"
     return "\n".join([title_line, device_type, device_id])

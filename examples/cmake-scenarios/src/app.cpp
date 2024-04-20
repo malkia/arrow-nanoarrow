@@ -15,17 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <benchmark/benchmark.h>
+#include "nanoarrow/nanoarrow.h"
+#include "nanoarrow/nanoarrow.hpp"
 
-#include "nanoarrow.h"
-
-static void BM_SchemaInit(benchmark::State& state) {
-  struct ArrowSchema schema;
-
-  for (auto _ : state) {
-    ArrowSchemaInit(&schema);
-  }
+int main(int argc, char* argv[]) {
+  nanoarrow::UniqueSchema schema;
+  NANOARROW_RETURN_NOT_OK(ArrowSchemaInitFromType(schema.get(), NANOARROW_TYPE_INT32));
+  printf("Schema format for int32 is '%s'", schema->format);
+  return EXIT_SUCCESS;
 }
-
-// Register the function as a benchmark
-BENCHMARK(BM_SchemaInit);

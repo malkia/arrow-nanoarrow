@@ -28,6 +28,7 @@ static int64_t kBytesAllocated = 0;
 
 static uint8_t* IntegrationTestReallocate(ArrowBufferAllocator* allocator, uint8_t* ptr,
                                           int64_t old_size, int64_t new_size) {
+  NANOARROW_UNUSED(allocator);
   ArrowBufferAllocator default_allocator = ArrowBufferAllocatorDefault();
   kBytesAllocated -= old_size;
   uint8_t* out =
@@ -41,6 +42,7 @@ static uint8_t* IntegrationTestReallocate(ArrowBufferAllocator* allocator, uint8
 
 static void IntegrationTestFree(struct ArrowBufferAllocator* allocator, uint8_t* ptr,
                                 int64_t size) {
+  NANOARROW_UNUSED(allocator);
   ArrowBufferAllocator default_allocator = ArrowBufferAllocatorDefault();
   kBytesAllocated -= size;
   default_allocator.free(&default_allocator, ptr, size);
@@ -52,6 +54,12 @@ static ArrowBufferAllocator IntegrationTestAllocator() {
   allocator.free = &IntegrationTestFree;
   allocator.private_data = nullptr;
   return allocator;
+}
+
+static void SetComparisonOptions(nanoarrow::testing::TestingJSONComparison* comparison) {
+  comparison->set_compare_batch_flags(false);
+  comparison->set_compare_float_precision(3);
+  comparison->set_compare_metadata_order(false);
 }
 
 static ArrowErrorCode ReadFileString(std::ostream& out, const std::string& file_path) {
@@ -141,6 +149,8 @@ static ArrowErrorCode ImportSchemaAndCompareToJson(const char* json_path,
       error));
 
   nanoarrow::testing::TestingJSONComparison comparison;
+  SetComparisonOptions(&comparison);
+
   NANOARROW_RETURN_NOT_OK(
       comparison.CompareSchema(actual.get(), data.schema.get(), error));
   if (comparison.num_differences() > 0) {
@@ -171,6 +181,8 @@ static ArrowErrorCode ImportBatchAndCompareToJson(const char* json_path, int num
   NANOARROW_RETURN_NOT_OK(MaterializeJsonFilePath(json_path, &data, num_batch, error));
 
   nanoarrow::testing::TestingJSONComparison comparison;
+  SetComparisonOptions(&comparison);
+
   NANOARROW_RETURN_NOT_OK(comparison.SetSchema(data.schema.get(), error));
   NANOARROW_RETURN_NOT_OK(
       comparison.CompareBatch(actual.get(), data.arrays[0].get(), error));

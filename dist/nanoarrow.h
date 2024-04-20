@@ -345,7 +345,7 @@ static inline void ArrowErrorSetString(struct ArrowError* error, const char* src
 
 #define NANOARROW_DCHECK(EXPR) _NANOARROW_DCHECK_IMPL(EXPR, #EXPR)
 #else
-#define NANOARROW_ASSERT_OK(EXPR) EXPR
+#define NANOARROW_ASSERT_OK(EXPR) (void)(EXPR)
 #define NANOARROW_DCHECK(EXPR)
 #endif
 
@@ -720,6 +720,9 @@ struct ArrowBufferAllocator {
   /// \brief Opaque data specific to the allocator
   void* private_data;
 };
+
+typedef void (*ArrowBufferDeallocatorCallback)(struct ArrowBufferAllocator* allocator,
+                                               uint8_t* ptr, int64_t size);
 
 /// \brief An owning mutable view of a buffer
 /// \ingroup nanoarrow-buffer
@@ -1168,10 +1171,8 @@ struct ArrowBufferAllocator ArrowBufferAllocatorDefault(void);
 /// attach a custom deallocator to an ArrowBuffer. This may be used to
 /// avoid copying an existing buffer that was not allocated using the
 /// infrastructure provided here (e.g., by an R or Python object).
-struct ArrowBufferAllocator ArrowBufferDeallocator(
-    void (*custom_free)(struct ArrowBufferAllocator* allocator, uint8_t* ptr,
-                        int64_t size),
-    void* private_data);
+struct ArrowBufferAllocator ArrowBufferDeallocator(ArrowBufferDeallocatorCallback,
+                                                   void* private_data);
 
 /// @}
 
@@ -1280,6 +1281,14 @@ ArrowErrorCode ArrowDecimalSetDigits(struct ArrowDecimal* decimal,
 ArrowErrorCode ArrowDecimalAppendDigitsToBuffer(const struct ArrowDecimal* decimal,
                                                 struct ArrowBuffer* buffer);
 
+/// \brief Resolve a chunk index from increasing int64_t offsets
+///
+/// Given a buffer of increasing int64_t offsets that begin with 0 (e.g., offset buffer
+/// of a large type, run ends of a chunked array implementation), resolve a value v
+/// where lo <= v < hi such that offsets[v] <= index < offsets[v + 1].
+static inline int64_t ArrowResolveChunk64(int64_t index, const int64_t* offsets,
+                                          int64_t lo, int64_t hi);
+
 /// @}
 
 /// \defgroup nanoarrow-schema Creating schemas
@@ -1360,7 +1369,7 @@ ArrowErrorCode ArrowSchemaSetTypeDateTime(struct ArrowSchema* schema, enum Arrow
                                           enum ArrowTimeUnit time_unit,
                                           const char* timezone);
 
-/// \brief Seet the format field of a union schema
+/// \brief Set the format field of a union schema
 ///
 /// Returns EINVAL for a type that is not NANOARROW_TYPE_DENSE_UNION
 /// or NANOARROW_TYPE_SPARSE_UNION. The specified number of children are
@@ -2177,6 +2186,28 @@ ArrowErrorCode ArrowBasicArrayStreamValidate(const struct ArrowArrayStream* arra
 extern "C" {
 #endif
 
+// Modified from Arrow C++ (1eb46f76) cpp/src/arrow/chunk_resolver.h#L133-L162
+static inline int64_t ArrowResolveChunk64(int64_t index, const int64_t* offsets,
+                                          int64_t lo, int64_t hi) {
+  // Similar to std::upper_bound(), but slightly different as our offsets
+  // array always starts with 0.
+  int64_t n = hi - lo;
+  // First iteration does not need to check for n > 1
+  // (lo < hi is guaranteed by the precondition).
+  NANOARROW_DCHECK(n > 1);
+  do {
+    const int64_t m = n >> 1;
+    const int64_t mid = lo + m;
+    if (index >= offsets[mid]) {
+      lo = mid;
+      n -= m;
+    } else {
+      n = m;
+    }
+  } while (n > 1);
+  return lo;
+}
+
 static inline int64_t _ArrowGrowByFactor(int64_t current_capacity, int64_t new_capacity) {
   int64_t doubled_capacity = current_capacity * 2;
   if (doubled_capacity > new_capacity) {
@@ -2195,6 +2226,8 @@ static inline void ArrowBufferInit(struct ArrowBuffer* buffer) {
 
 static inline ArrowErrorCode ArrowBufferSetAllocator(
     struct ArrowBuffer* buffer, struct ArrowBufferAllocator allocator) {
+  // This is not a perfect test for "has a buffer already been allocated"
+  // but is likely to catch most cases.
   if (buffer->data == NULL) {
     buffer->allocator = allocator;
     return NANOARROW_OK;
@@ -2204,20 +2237,15 @@ static inline ArrowErrorCode ArrowBufferSetAllocator(
 }
 
 static inline void ArrowBufferReset(struct ArrowBuffer* buffer) {
-  if (buffer->data != NULL) {
-    buffer->allocator.free(&buffer->allocator, (uint8_t*)buffer->data,
-                           buffer->capacity_bytes);
-    buffer->data = NULL;
-  }
-
-  buffer->capacity_bytes = 0;
-  buffer->size_bytes = 0;
+  buffer->allocator.free(&buffer->allocator, (uint8_t*)buffer->data,
+                         buffer->capacity_bytes);
+  ArrowBufferInit(buffer);
 }
 
 static inline void ArrowBufferMove(struct ArrowBuffer* src, struct ArrowBuffer* dst) {
   memcpy(dst, src, sizeof(struct ArrowBuffer));
   src->data = NULL;
-  ArrowBufferReset(src);
+  ArrowBufferInit(src);
 }
 
 static inline ArrowErrorCode ArrowBufferResize(struct ArrowBuffer* buffer,

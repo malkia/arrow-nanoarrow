@@ -313,7 +313,7 @@ static inline void ArrowErrorSetString(struct ArrowError* error, const char* src
 
 #define NANOARROW_DCHECK(EXPR) _NANOARROW_DCHECK_IMPL(EXPR, #EXPR)
 #else
-#define NANOARROW_ASSERT_OK(EXPR) EXPR
+#define NANOARROW_ASSERT_OK(EXPR) (void)(EXPR)
 #define NANOARROW_DCHECK(EXPR)
 #endif
 
@@ -688,6 +688,9 @@ struct ArrowBufferAllocator {
   /// \brief Opaque data specific to the allocator
   void* private_data;
 };
+
+typedef void (*ArrowBufferDeallocatorCallback)(struct ArrowBufferAllocator* allocator,
+                                               uint8_t* ptr, int64_t size);
 
 /// \brief An owning mutable view of a buffer
 /// \ingroup nanoarrow-buffer
